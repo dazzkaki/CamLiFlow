@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 from .pointconv import PointConvNoSampling, PointConvDownSampling
-from .utils import MLP1d, MLP2d, batch_indexing_channel_first
+from .utils import MLP1d, MLP2d, batch_indexing_channel_first, timer
 from .csrc import k_nearest_neighbor, furthest_point_sampling
 
 
+@timer.timer_func
 def build_pc_pyramid(pc1, pc2, n_samples_list):
     batch_size, _, n_points = pc1.shape
 
@@ -41,6 +42,7 @@ class FeaturePyramid3D(nn.Module):
             self.pyramid_mlps.append(MLP1d(n_channels[i], [n_channels[i], n_channels[i + 1]]))
             self.pyramid_convs.append(PointConvDownSampling(n_channels[i + 1], n_channels[i + 1], norm=norm, k=k))
 
+    @timer.timer_func
     def forward(self, xyzs):
         """
         :param xyzs: pyramid of points
@@ -66,6 +68,7 @@ class Correlation3D(nn.Module):
         self.weight_net1 = MLP2d(3, [8, 8, out_channels], activation='relu')
         self.weight_net2 = MLP2d(3, [8, 8, out_channels], activation='relu')
 
+    @timer.timer_func
     def forward(self, xyz1, feat1, xyz2, feat2, knn_indices_1in1=None):
         """
         :param xyz1: [batch_size, 3, n_points]
@@ -129,6 +132,7 @@ class FlowEstimator3D(nn.Module):
         else:
             self.conv_last = None
 
+    @timer.timer_func
     def forward(self, xyz, feat, knn_indices):
         """
         :param xyz: 3D locations of points, [batch_size, 3, n_points]

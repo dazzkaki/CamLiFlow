@@ -378,14 +378,31 @@ def parallel2perspect(xyz, perspect_camera_info, parallel_camera_info):
     ], dim=1)
 
 
-def timer_func(func):
-    # This function shows the execution time of the function object passed
-    def wrap_func(*args, **kwargs):
-        t1 = time.time()
-        result = func(*args, **kwargs)
-        torch.cuda.synchronize()
-        t2 = time.time()
+class Timer:
+    def __init__(self):
+        self.timing_stat = {}
 
-        print(f'Function {func.__qualname__!r} executed in {(t2 - t1) * 1000:.4f}ms')
-        return result
-    return wrap_func
+    def timer_func(self, func):
+        # This function shows the execution time of the function object passed
+        def wrap_func(*args, **kwargs):
+            t1 = time.time()
+            result = func(*args, **kwargs)
+            torch.cuda.synchronize()
+            t2 = time.time()
+
+            if func.__qualname__ in self.timing_stat.keys():
+                self.timing_stat[func.__qualname__] += (t2 - t1) * 1000
+            else:
+                self.timing_stat[func.__qualname__] = (t2 - t1) * 1000
+
+            return result
+        return wrap_func
+
+    def clear_timing_stat(self):
+        self.timing_stat = {}
+
+    def get_timing_stat(self):
+        return self.timing_stat
+
+
+timer = Timer()

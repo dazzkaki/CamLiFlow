@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
-from torch.nn.functional import leaky_relu, interpolate
-from .pwc2d_core import FeaturePyramid2D, FlowEstimatorDense2D, ContextNetwork2D
+from torch.nn.functional import interpolate
+from .pwc2d_core import Correlation2D, FeaturePyramid2D, FlowEstimatorDense2D, ContextNetwork2D
 from .pwc3d_core import FeaturePyramid3D, FlowEstimator3D, Correlation3D
 from .utils import Conv1dNormRelu, Conv2dNormRelu, project_feat_with_nn_corr, grid_sample_wrapper, project_pc2image, mesh_grid
-from .utils import backwarp_2d, backwarp_3d, knn_interpolation, convex_upsample
-from .csrc import correlation2d, k_nearest_neighbor
+from .utils import backwarp_2d, backwarp_3d, knn_interpolation, convex_upsample, timer
+from .csrc import k_nearest_neighbor
 
 
 class PyramidFeatureFuser2D(nn.Module):
@@ -25,6 +25,7 @@ class PyramidFeatureFuser2D(nn.Module):
         )
         self.fuse = Conv2dNormRelu(in_channels_2d + in_channels_3d, in_channels_2d)
 
+    @timer.timer_func
     def forward(self, xy, feat_2d, feat_3d, nn_proj=None):
         feat_3d_to_2d = project_feat_with_nn_corr(xy, feat_2d, feat_3d, nn_proj[..., 0])
 
@@ -46,6 +47,7 @@ class PyramidFeatureFuser3D(nn.Module):
         )
         self.fuse = Conv1dNormRelu(in_channels_2d + in_channels_3d, in_channels_3d)
 
+    @timer.timer_func
     def forward(self, xy, feat_2d, feat_3d):
         with torch.no_grad():
             feat_2d_to_3d = grid_sample_wrapper(feat_2d, xy)
@@ -68,6 +70,7 @@ class CorrFeatureFuser2D(nn.Module):
         )
         self.fuse = Conv2dNormRelu(in_channels_2d + in_channels_3d, in_channels_2d)
 
+    @timer.timer_func
     def forward(self, xy, feat_2d, feat_3d, last_flow_2d, last_flow_3d_to_2d, nn_proj=None):
         feat_3d = torch.cat([feat_3d, last_flow_3d_to_2d], dim=1)
         
@@ -92,6 +95,7 @@ class CorrFeatureFuser3D(nn.Module):
         )
         self.fuse = Conv1dNormRelu(in_channels_2d + in_channels_3d, in_channels_3d)
 
+    @timer.timer_func
     def forward(self, xy, feat_corr_2d, feat_corr_3d, last_flow_3d, last_flow_2d_to_3d):
         with torch.no_grad():
             feat_2d_with_flow = torch.cat([feat_corr_2d, last_flow_2d_to_3d], dim=1)
@@ -117,6 +121,7 @@ class DecoderFeatureFuser2D(nn.Module):
         )
         self.fuse = Conv2dNormRelu(in_channels_2d + in_channels_3d, in_channels_2d)
 
+    @timer.timer_func
     def forward(self, xy, feat_2d, feat_3d, nn_proj=None):
         feat_3d_to_2d = project_feat_with_nn_corr(xy, feat_2d, feat_3d, nn_proj[..., 0])
 
@@ -132,6 +137,7 @@ class DecoderFeatureFuser3D(nn.Module):
         super().__init__()
         self.fuse = Conv1dNormRelu(in_channels_2d + in_channels_3d, in_channels_3d)
 
+    @timer.timer_func
     def forward(self, xy, feat_2d, feat_3d):
         with torch.no_grad():
             feat_2d_to_3d = grid_sample_wrapper(feat_2d, xy)
@@ -161,6 +167,7 @@ class PWCFusionCore(nn.Module):
             Conv2dNormRelu(128, 64),
             Conv2dNormRelu(192, 64),
         ])
+        self.correlation_2d = Correlation2D(cfgs2d.max_displacement)
         self.flow_estimator_2d = FlowEstimatorDense2D(
             [64 + corr_channels_2d + 2 + 32, 128, 128, 96, 64, 32],
             norm=cfgs2d.norm.flow_estimator,
@@ -318,8 +325,8 @@ class PWCFusionCore(nn.Module):
                 xyz2_warp = backwarp_3d(xyz1, xyz2, last_flow_3d)
 
             # correlation (2D & 3D)
+            feat_corr_2d = self.correlation_2d(feat1_2d, feat2_2d_warp)
             feat_corr_3d = self.correlations_3d[level](xyz1, feat1_3d, xyz2_warp, feat2_3d, knn_1in1)
-            feat_corr_2d = leaky_relu(correlation2d(feat1_2d, feat2_2d_warp, self.cfgs2d.max_displacement), 0.1)
 
             # fuse correlation features
             last_flow_3d_to_2d = torch.cat([

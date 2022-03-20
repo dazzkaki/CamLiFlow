@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
-from .utils import Conv2dNormRelu
+from torch.nn.functional import leaky_relu
+from .utils import Conv2dNormRelu, timer
+from .csrc import correlation2d
 
 
 class ResidualBlock(nn.Module):
@@ -32,12 +34,23 @@ class FeaturePyramid2D(nn.Module):
         for in_channels, out_channels in zip(n_channels[:-1], n_channels[1:]):
             self.pyramid_convs.append(ResidualBlock(in_channels, out_channels, norm=norm))
 
+    @timer.timer_func
     def forward(self, x):
         outputs = []
         for conv in self.pyramid_convs:
             x = conv(x)
             outputs.append(x)
         return outputs
+
+
+class Correlation2D(nn.Module):
+    def __init__(self, max_displacement):
+        super().__init__()
+        self.max_displacement = max_displacement
+
+    @timer.timer_func
+    def forward(self, feat1, feat2):
+        return leaky_relu(correlation2d(feat1, feat2, self.max_displacement), 0.1)
 
 
 class FlowEstimatorDense2D(nn.Module):
@@ -75,6 +88,7 @@ class FlowEstimatorDense2D(nn.Module):
         else:
             self.conv_last = None
 
+    @timer.timer_func
     def forward(self, x):
         x1 = torch.cat([self.conv1(x), x], dim=1)
         x2 = torch.cat([self.conv2(x1), x1], dim=1)
@@ -97,6 +111,7 @@ class ContextNetwork2D(nn.Module):
             self.convs.append(Conv2dNormRelu(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation, norm=norm))
         self.conv_last = nn.Conv2d(n_channels[-1], 2, kernel_size=3, stride=1, padding=1)
 
+    @timer.timer_func
     def forward(self, x):
         for conv in self.convs:
             x = conv(x)
