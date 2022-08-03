@@ -5,6 +5,7 @@ from .pwc_fusion_core import PWCFusionCore
 from .losses2d import calc_supervised_loss_2d
 from .losses3d import calc_supervised_loss_3d
 from .utils import resize_to_64x, resize_flow2d, perspect2parallel, parallel2perspect
+from matplotlib import pyplot as plt
 
 
 class PWCFusionProSupervised(nn.Module):
@@ -77,6 +78,7 @@ class PWCFusionProSupervised(nn.Module):
             xyzs1, xyzs2, feats1_2d, feats2_2d, feats1_3d, feats2_3d,
             paral_cam_info if self.cfgs.ids.enabled else persp_cam_info
         )
+        print("**")
 
         if self.cfgs.ids.enabled:
             pc1 = parallel2perspect(pc1, persp_cam_info, paral_cam_info)

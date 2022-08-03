@@ -6,7 +6,10 @@ from .pwc3d_core import FeaturePyramid3D, FlowEstimator3D, Correlation3D
 from .utils import Conv1dNormRelu, Conv2dNormRelu, project_feat_with_nn_corr, grid_sample_wrapper, project_pc2image, mesh_grid
 from .utils import backwarp_2d, backwarp_3d, knn_interpolation, convex_upsample
 from .csrc import correlation2d, k_nearest_neighbor
-
+import open3d
+import numpy as np
+from matplotlib import pyplot
+import time
 
 class PyramidFeatureFuser2D(nn.Module):
     """
@@ -283,18 +286,73 @@ class PWCFusionCore(nn.Module):
             xy2[:, 0] *= (image_w - 1) / (sensor_w - 1)
             xy2[:, 1] *= (image_h - 1) / (sensor_h - 1)
 
+            ############## pointcloud visualizaiton ##############
+            xyz1_show = xyz1[0].T.cpu().detach().numpy()
+            xyz1_color = np.zeros((len(xyz1_show), 3))
+            xyz1_depth = np.linalg.norm(xyz1_show, 2, axis=1)
+            xyz1_depth = xyz1_depth/np.max(xyz1_depth)
+            xyz1_color[:,0] = xyz1_depth
+            xyz1_color[:,1] = xyz1_depth
+            xyz1_color[:,2] = xyz1_depth
+            xyz1_pc = open3d.geometry.PointCloud()
+            xyz1_pc.points = open3d.utility.Vector3dVector(xyz1_show)
+            xyz1_pc.colors = open3d.utility.Vector3dVector(xyz1_color)
+            # open3d.visualization.draw_geometries([xyz1_pc])
+
+            ############## image feature visualizaiton ##############
+            feat1_2d_show = feat1_2d[0].cpu().detach().numpy()
+            pyplot.subplot(3,2,1)
+            pyplot.imshow(feat1_2d_show[0,:,:])
+            pyplot.title(str(image_h)+'*'+str(image_w))
+
+            ############## scatter visualization ##############
+            u, v = xy1[0].cpu().detach().numpy()
+            pyplot.subplot(3,2,2)
+            pyplot.imshow(feat1_2d_show[0,:,:])
+            pyplot.scatter([u],[v],c=[xyz1_depth],cmap='rainbow_r',alpha=0.5,s=2)
+            pyplot.title("scattered img with pointcloud")
+
             # pre-compute knn indices
             grid = mesh_grid(batch_size, image_h, image_w, xy1.device)  # [B, 2, H, W]
             grid = grid.reshape([batch_size, 2, -1])  # [B, 2, HW]
+
+            ############## grid visualization ##############
+            grid_show = grid.reshape([batch_size, 2, image_h, image_w])
+            grid_show = grid_show[0].cpu().detach().numpy()
+            pyplot.subplot(3,2,3)
+            pyplot.imshow(grid_show[0,:,:])
+            pyplot.title("grid(Width)")
+            pyplot.subplot(3,2,4)
+            pyplot.imshow(grid_show[1,:,:])
+            pyplot.title("grid(Height)")
+
             nn_proj1 = k_nearest_neighbor(xy1, grid, k=1)  # [B, HW, k]
             nn_proj2 = k_nearest_neighbor(xy2, grid, k=1)  # [B, HW, k]
             knn_1in1 = k_nearest_neighbor(xyz1, xyz1, k=self.cfgs3d.k)  # [bs, n_points, k]
+            
+            ############## information ##############
+            print("xyz1: ", xyz1.shape, "xy1: ", xy1.shape, "feat1_2d: ", feat1_2d.shape, "nn_proj1: ", nn_proj1.shape)
+            ############## k_nearest_neighbor visualization ##############
+            nn_proj1_show = nn_proj1.reshape([batch_size, image_h, image_w])
+            nn_proj1_show = nn_proj1_show[0].cpu().detach().numpy()
+            pyplot.subplot(3,2,5)
+            pyplot.imshow(nn_proj1_show)
+            pyplot.title("Nearest points(k=1)")
 
             # fuse pyramid features
             feat1_2d_fused = self.pyramid_feat_fusers_2d[level](xy1, feat1_2d, feat1_3d, nn_proj1)
             feat2_2d_fused = self.pyramid_feat_fusers_2d[level](xy2, feat2_2d, feat2_3d, nn_proj2)
             feat1_3d_fused = self.pyramid_feat_fusers_3d[level](xy1, feat1_2d, feat1_3d)
             feat2_3d_fused = self.pyramid_feat_fusers_3d[level](xy2, feat2_2d, feat2_3d)
+
+            print("feat1_2d_fused: ", feat1_2d_fused.shape, "feat1_3d_fused: ", feat1_3d_fused.shape)
+            ############## fusedimage feature visualizaiton ##############
+            feat1_2d_fused_show = feat1_2d_fused[0].cpu().detach().numpy()
+            pyplot.subplot(3,2,6)
+            pyplot.imshow(feat1_2d_fused_show[0,:,:])
+            pyplot.title("Fused image feature")
+            pyplot.show()
+
             feat1_2d, feat2_2d = feat1_2d_fused, feat2_2d_fused
             feat1_3d, feat2_3d = feat1_3d_fused, feat2_3d_fused
 

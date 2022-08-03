@@ -1,6 +1,6 @@
 trainset:
   name: kitti
-  root_dir: datasets/kitti_scene_flow
+  root_dir: /home/ailab/AILabDataset/01_Open_Dataset/03_KITTI/kitti_scene_flow
   split: training160
   n_workers: 8
   drop_last: false
@@ -29,7 +29,7 @@ trainset:
 
 valset:
   name: kitti
-  root_dir: datasets/kitti_scene_flow
+  root_dir: /home/ailab/AILabDataset/01_Open_Dataset/03_KITTI/kitti_scene_flow
   split: training40
   n_workers: 8
 
@@ -41,8 +41,8 @@ valset:
     enabled: false
 
 model:
-  batch_size: 8
-  freeze_bn: true
+  batch_size: 1
+  freeze_bn: false
 
   ids:
     enabled: true
